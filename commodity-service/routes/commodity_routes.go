@@ -16,8 +16,11 @@ func CommodityRoutes(router *gin.Engine) {
 	// Primary routes: define WITHOUT a trailing slash for collection endpoints
 	commodityGroup := router.Group("/commodities")
 	{
-		commodityGroup.POST("", commodityController.CreateCommodity)     // Matches /commodities
-		commodityGroup.GET("", commodityController.GetAllCommodities)    // Matches /commodities
+		// Explicitly handle all HTTP methods for the base /commodities path (no trailing slash)
+		commodityGroup.POST("", commodityController.CreateCommodity)  // Matches /commodities
+		commodityGroup.GET("", commodityController.GetAllCommodities) // Matches /commodities
+
+		// Routes for specific IDs
 		commodityGroup.GET("/:id", commodityController.GetCommodityByID) // Matches /commodities/:id
 		commodityGroup.PUT("/:id", commodityController.UpdateCommodity)
 		commodityGroup.DELETE("/:id", commodityController.DeleteCommodity)
@@ -42,5 +45,12 @@ func CommodityRoutes(router *gin.Engine) {
 		id := c.Param("id")
 		c.Redirect(http.StatusMovedPermanently, fmt.Sprintf("/commodities/%s", id))
 	})
-	// Add other methods if necessary
+	// Add OPTIONS redirect
+	router.OPTIONS("/commodities/", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/commodities")
+	})
+	router.OPTIONS("/commodities/:id/", func(c *gin.Context) {
+		id := c.Param("id")
+		c.Redirect(http.StatusMovedPermanently, fmt.Sprintf("/commodities/%s", id))
+	})
 }
