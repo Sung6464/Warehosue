@@ -1,11 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
-// Tailwind CSS import (for Canvas preview)
-// The actual application assumes Tailwind CSS is configured.
-// This script tag ensures it works in the Canvas environment.
-// <script src="https://cdn.tailwindcss.com"></script>
-
-
 // Reusable Button Component with enhanced styling
 const Button = ({ children, onClick, className = '', variant = 'primary', size = 'md', ...props }) => {
   let baseStyle = 'inline-flex items-center justify-center rounded-lg text-sm font-semibold transition-all duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none transform active:scale-98';
@@ -23,11 +17,11 @@ const Button = ({ children, onClick, className = '', variant = 'primary', size =
       variantStyle = 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-md hover:from-red-700 hover:to-red-800 focus:ring-red-500';
       break;
     case 'secondary':
-        variantStyle = 'bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-400';
-        break;
+      variantStyle = 'bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-400';
+      break;
     case 'ghost':
-        variantStyle = 'text-gray-600 hover:bg-gray-100 focus:ring-gray-400';
-        break;
+      variantStyle = 'text-gray-600 hover:bg-gray-100 focus:ring-gray-400';
+      break;
     default:
       variantStyle = 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-md hover:from-blue-700 hover:to-blue-800 focus:ring-blue-500';
   }
@@ -151,7 +145,7 @@ const CheckIcon = () => (
 
 
 // Navigation icons
-const HomeIcon = () => (
+const DashboardIcon = () => ( // Renamed from HomeIcon for clarity with DashboardPage
   <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-home">
     <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
     <polyline points="9 22 9 12 15 12 15 22" />
@@ -191,31 +185,32 @@ const BoxIcon = () => (
 );
 
 
-// The API base URL. This will be '/api' for local development due to the proxy in package.json.
-// For Render deployment, you would change this to your Render API Gateway URL.
-const API_BASE_URL = '/api'; 
+// The API base URL. This is now an ABSOLUTE URL.
+const API_BASE_URL = 'http://localhost:8080/api'; 
 
 // Generic fetch utility to handle API calls
 const fetchData = async (url, options = {}) => {
   try {
     const response = await fetch(url, options);
     if (!response.ok) {
+      // Attempt to parse JSON error message from backend
       const errorData = await response.json().catch(() => ({ message: `HTTP error! status: ${response.status}` }));
-      throw new Error(errorData.message || `Failed to fetch data from ${url}. Status: ${response.status}`);
+      throw new Error(errorData.error || errorData.message || `Failed to fetch data from ${url}. Status: ${response.status}`);
     }
+    // Handle 204 No Content responses (like DELETE)
     if (response.status === 204) {
       return null;
     }
     return response.json();
   } catch (error) {
     console.error('API call error:', error);
-    throw error;
+    throw error; // Re-throw to be caught by component's error state
   }
 };
 
 // Base component for displaying lists with add/edit/delete functionality
 // Now uses a modal for forms
-const CrudPage = ({ title, fields, apiUrl, initialFormState, idField = '_id', children }) => {
+const CrudPage = ({ title, fields, apiUrl, initialFormState, idField = 'id', children }) => { // Changed idField default to 'id'
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -231,7 +226,7 @@ const CrudPage = ({ title, fields, apiUrl, initialFormState, idField = '_id', ch
     setError(null);
     try {
       const data = await fetchData(apiUrl);
-      setItems(data || []);
+      setItems(data || []); // Ensure data is an array
     } catch (err) {
       setError(err.message);
     } finally {
@@ -246,8 +241,10 @@ const CrudPage = ({ title, fields, apiUrl, initialFormState, idField = '_id', ch
 
   // Handle form input changes
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    const { name, value, type } = e.target;
+    // For number inputs, parse to int
+    const newValue = type === 'number' ? (value === '' ? '' : parseInt(value)) : value;
+    setForm((prev) => ({ ...prev, [name]: newValue }));
     // Clear error for the field being changed
     if (formErrors[name]) {
       setFormErrors((prev) => ({ ...prev, [name]: '' }));
@@ -259,14 +256,18 @@ const CrudPage = ({ title, fields, apiUrl, initialFormState, idField = '_id', ch
     let errors = {};
     let isValid = true;
     fields.forEach(field => {
-      // Basic validation: check if field is empty (unless it's an optional field based on context)
-      if (form[field.name] === '' || form[field.name] === null || form[field.name] === undefined) {
+      // Basic validation: check if field is empty (unless specified as optional)
+      // Check if value is truly "empty" for validation purposes
+      const fieldValue = form[field.name];
+      const isEmpty = fieldValue === '' || fieldValue === null || fieldValue === undefined || (typeof fieldValue === 'number' && isNaN(fieldValue));
+
+      if (!field.optional && isEmpty) { // 'optional' field can be added to field definitions if needed
         errors[field.name] = `${field.label} is required.`;
         isValid = false;
       }
-      // Specific validation for number types
-      if (field.type === 'number' && isNaN(form[field.name])) {
-        errors[field.name] = `${field.label} must be a number.`;
+      // Specific validation for number types if not empty
+      if (field.type === 'number' && !isEmpty && isNaN(fieldValue)) {
+        errors[field.name] = `${field.label} must be a valid number.`;
         isValid = false;
       }
     });
@@ -283,31 +284,40 @@ const CrudPage = ({ title, fields, apiUrl, initialFormState, idField = '_id', ch
     }
 
     setLoading(true);
-    setError(null);
+    setError(null); // Clear previous errors
     try {
+      // Prepare data, converting number fields if necessary before sending to backend
+      const dataToSend = {};
+      fields.forEach(field => {
+          let val = form[field.name];
+          if (field.type === 'number' && typeof val === 'string' && val !== '') {
+              val = parseInt(val);
+          }
+          dataToSend[field.name] = val;
+      });
+
       if (isEditing) {
         await fetchData(`${apiUrl}/${currentId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form),
+          body: JSON.stringify(dataToSend),
         });
       } else {
         await fetchData(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form),
+          body: JSON.stringify(dataToSend),
         });
       }
       setShowModal(false); // Close modal on success
-      setForm(initialFormState);
+      setForm(initialFormState); // Reset form
       setIsEditing(false);
       setCurrentId(null);
       setFormErrors({}); // Clear form errors
-      fetchItems();
+      fetchItems(); // Re-fetch items to update the list
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      setError(err.message); // Set error message if API call fails
+      setLoading(false); // Stop loading on error
     }
   };
 
@@ -322,7 +332,15 @@ const CrudPage = ({ title, fields, apiUrl, initialFormState, idField = '_id', ch
 
   // Open modal and populate form for editing
   const handleEdit = (item) => {
-    setForm(item);
+    // Ensure numbers are numbers, not strings for form population
+    const preparedForm = {};
+    fields.forEach(field => {
+        preparedForm[field.name] = item[field.name];
+        if (field.type === 'number' && typeof item[field.name] === 'string') {
+            preparedForm[field.name] = parseInt(item[field.name]);
+        }
+    });
+    setForm(preparedForm);
     setIsEditing(true);
     setCurrentId(item[idField]);
     setFormErrors({});
@@ -382,7 +400,7 @@ const CrudPage = ({ title, fields, apiUrl, initialFormState, idField = '_id', ch
                 <tr key={item[idField]} className="hover:bg-blue-50 transition-colors duration-150 ease-in-out">
                   {fields.map((field) => (
                     <td key={field.name} className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
-                      {/* Special handling for children (e.g., InventoryPage's mapped fields) */}
+                      {/* Special handling for children (e.g., InventoryPage's mapped fields for display) */}
                       {children ? children(item, field.name) : (item[field.name])}
                     </td>
                   ))}
@@ -432,8 +450,6 @@ const CrudPage = ({ title, fields, apiUrl, initialFormState, idField = '_id', ch
                   onChange={handleChange}
                   placeholder={`Enter ${field.label.toLowerCase()}`}
                   error={formErrors[field.name]}
-                  // Convert number input values to number type if applicable
-                  {...(field.type === 'number' && { value: form[field.name] === null || form[field.name] === undefined ? '' : form[field.name] })}
                 />
               );
             }
@@ -458,13 +474,23 @@ const CustomerPage = () => (
     title="Customers"
     apiUrl={`${API_BASE_URL}/customers`}
     fields={[
-      { name: 'name', label: 'Name' },
+      { name: 'firstName', label: 'First Name' },
+      { name: 'lastName', label: 'Last Name' },
       { name: 'email', label: 'Email', type: 'email' },
+      { name: 'phone', label: 'Phone' },
       { name: 'address', label: 'Address' },
     ]}
-    initialFormState={{ name: '', email: '', address: '' }}
-  />
+    initialFormState={{ firstName: '', lastName: '', email: '', phone: '', address: '' }}
+  >
+    {/* Custom rendering for table to concatenate first and last name */}
+    {(item, fieldName) => {
+        if (fieldName === 'firstName') return `${item.firstName} ${item.lastName}`;
+        if (fieldName === 'lastName') return null; // Don't render separately
+        return item[fieldName];
+    }}
+  </CrudPage>
 );
+
 
 const WarehousePage = () => (
   <CrudPage
@@ -493,24 +519,16 @@ const CommodityPage = () => (
 
 // Inventory Page - Now much cleaner using CrudPage and dynamic options
 const InventoryPage = () => {
-  const [customers, setCustomers] = useState([]);
-  const [warehouses, setWarehouses] = useState([]);
   const [commodities, setCommodities] = useState([]);
   const [loadingLookups, setLoadingLookups] = useState(true);
   const [lookupError, setLookupError] = useState(null);
 
-  // Fetch all related data for dropdowns
+  // Fetch commodities for the dropdown
   const fetchLookupData = useCallback(async () => {
     setLoadingLookups(true);
     setLookupError(null);
     try {
-      const [custData, whData, commData] = await Promise.all([
-        fetchData(`${API_BASE_URL}/customers`),
-        fetchData(`${API_BASE_URL}/warehouses`),
-        fetchData(`${API_BASE_URL}/commodities`),
-      ]);
-      setCustomers(custData || []);
-      setWarehouses(whData || []);
+      const commData = await fetchData(`${API_BASE_URL}/commodities`);
       setCommodities(commData || []);
     } catch (err) {
       setLookupError(err.message);
@@ -523,18 +541,17 @@ const InventoryPage = () => {
     fetchLookupData();
   }, [fetchLookupData]);
 
-  // Prepare fields for CrudPage, including options for Select components
+  // Inventory fields now match the Go Inventory model
   const inventoryFields = [
-    { name: 'warehouse_id', label: 'Warehouse', options: warehouses.map(wh => ({ value: wh._id, label: wh.name })) },
-    { name: 'commodity_id', label: 'Commodity', options: commodities.map(c => ({ value: c._id, label: c.name })) },
-    { name: 'customer_id', label: 'Customer', options: customers.map(cust => ({ value: cust._id, label: cust.name })) },
+    { name: 'productId', label: 'Product (Commodity)', options: commodities.map(c => ({ value: c.id, label: c.name })) }, // Use 'id' for value
     { name: 'quantity', label: 'Quantity', type: 'number' },
+    { name: 'location', label: 'Location' },
   ];
 
   // Helper to get entity names for display in inventory table
-  const getEntityName = (id, entities, fieldName) => {
-    const entity = entities.find(e => e._id === id);
-    return entity ? entity[fieldName] : 'N/A';
+  const getCommodityName = (productId) => {
+    const commodity = commodities.find(c => c.id === productId); // Use 'id' to match
+    return commodity ? commodity.name : 'N/A';
   };
 
   if (loadingLookups) return <div className="text-center py-12 text-gray-600">Loading Inventory Lookup Data...</div>;
@@ -546,19 +563,17 @@ const InventoryPage = () => {
       title="Inventory"
       apiUrl={`${API_BASE_URL}/inventory`}
       fields={inventoryFields}
-      initialFormState={{ warehouse_id: '', commodity_id: '', customer_id: '', quantity: '' }}
+      initialFormState={{ productId: '', quantity: '', location: '' }} // Match Go model fields
     >
-      {/* Custom rendering for table cells to show names instead of IDs */}
+      {/* Custom rendering for table cells to show commodity name instead of ID */}
       {(item, fieldName) => {
         switch (fieldName) {
-          case 'warehouse_id':
-            return getEntityName(item.warehouse_id, warehouses, 'name');
-          case 'commodity_id':
-            return getEntityName(item.commodity_id, commodities, 'name');
-          case 'customer_id':
-            return getEntityName(item.customer_id, customers, 'name');
+          case 'productId':
+            return getCommodityName(item.productId);
           case 'quantity':
             return item.quantity;
+          case 'location':
+            return item.location;
           default:
             return item[fieldName];
         }
@@ -572,13 +587,12 @@ const InventoryPage = () => {
 const App = () => {
   const [currentPage, setCurrentPage] = useState('dashboard'); // Default to dashboard page
 
-  // Utility to add Tailwind CSS to the head (for canvas embedding)
+  // Utility to add Tailwind CSS and Inter font to the head (for canvas embedding)
   useEffect(() => {
     const script = document.createElement('script');
     script.src = 'https://cdn.tailwindcss.com';
     document.head.appendChild(script);
 
-    // Apply Inter font-family for a clean look
     const style = document.createElement('style');
     style.innerHTML = `
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -586,6 +600,22 @@ const App = () => {
         font-family: 'Inter', sans-serif;
         background-color: #F8F9FB; /* Light background for the overall app */
       }
+      /* Animation for dashboard */
+      @keyframes fadeInDown {
+        from { opacity: 0; transform: translateY(-20px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes popIn {
+        from { opacity: 0; transform: scale(0.9); }
+        to { opacity: 1; transform: scale(1); }
+      }
+      .animate-fade-in-down { animation: fadeInDown 0.6s ease-out forwards; }
+      .animate-fade-in-up { animation: fadeInUp 0.6s ease-out 0.2s forwards; }
+      .animate-pop-in { animation: popIn 0.5s ease-out 0.4s forwards; }
     `;
     document.head.appendChild(style);
 
@@ -634,7 +664,7 @@ const App = () => {
       {/* Top Navigation Bar */}
       <nav className="bg-white shadow-lg py-4 px-6 md:px-10 flex flex-col md:flex-row items-center justify-between rounded-b-xl mb-6">
         <div className="flex items-center mb-4 md:mb-0">
-          <HomeIcon className="text-blue-600 mr-3" />
+          <DashboardIcon className="text-blue-600 mr-3" /> {/* Changed to DashboardIcon */}
           <h1 className="text-3xl font-extrabold text-gray-800">WMS Hub</h1>
         </div>
         <div className="flex flex-wrap justify-center md:justify-end gap-3">
@@ -643,7 +673,7 @@ const App = () => {
             onClick={() => setCurrentPage('dashboard')}
             className="flex items-center text-base"
           >
-            <HomeIcon className="mr-2 w-5 h-5" /> Dashboard
+            <DashboardIcon className="mr-2 w-5 h-5" /> Dashboard
           </Button>
           <Button
             variant={currentPage === 'customers' ? 'primary' : 'ghost'}
@@ -685,4 +715,3 @@ const App = () => {
 };
 
 export default App;
-

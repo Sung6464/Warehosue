@@ -57,19 +57,16 @@ func (gc *GatewayController) ProxyToService(targetURL *url.URL, apiPathPrefix st
 		originalPath := req.URL.Path
 
 		// Extract the portion of the path that comes after the API Gateway's prefix.
-		// Gin's `*proxyPath` captures this, but accessing it directly from req.URL.Path
-		// is robust.
 		// Example: if originalPath is "/api/customers/123" and apiPathPrefix is "/api/customers"
 		// then proxyPathSegment will be "/123".
 		// If originalPath is "/api/customers" or "/api/customers/", proxyPathSegment will be "" or "/".
 		proxyPathSegment := strings.TrimPrefix(originalPath, apiPathPrefix)
 
-		// Normalize the proxyPathSegment: ensure it doesn't have leading/trailing slashes for concatenation,
-		// unless it's just the root path.
+		// Normalize the proxyPathSegment and construct the final path for the downstream service.
 		var finalDownstreamPath string
 		if proxyPathSegment == "" || proxyPathSegment == "/" {
 			// If client requested /api/customers or /api/customers/,
-			// send just /customers to the downstream service.
+			// send just /customers to the downstream service (no trailing slash).
 			finalDownstreamPath = downstreamRootPath
 		} else {
 			// If client requested /api/customers/123, send /customers/123.

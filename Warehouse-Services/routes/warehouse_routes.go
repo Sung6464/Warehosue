@@ -16,8 +16,11 @@ func WarehouseRoutes(router *gin.Engine) {
 	// Primary routes: define WITHOUT a trailing slash for collection endpoints
 	warehouseGroup := router.Group("/warehouses")
 	{
-		warehouseGroup.POST("", warehouseController.CreateWarehouse)     // Matches /warehouses
-		warehouseGroup.GET("", warehouseController.GetAllWarehouses)     // Matches /warehouses
+		// Explicitly handle all HTTP methods for the base /warehouses path (no trailing slash)
+		warehouseGroup.POST("", warehouseController.CreateWarehouse) // Matches /warehouses
+		warehouseGroup.GET("", warehouseController.GetAllWarehouses) // Matches /warehouses
+
+		// Routes for specific IDs
 		warehouseGroup.GET("/:id", warehouseController.GetWarehouseByID) // Matches /warehouses/:id
 		warehouseGroup.PUT("/:id", warehouseController.UpdateWarehouse)
 		warehouseGroup.DELETE("/:id", warehouseController.DeleteWarehouse)
@@ -42,5 +45,12 @@ func WarehouseRoutes(router *gin.Engine) {
 		id := c.Param("id")
 		c.Redirect(http.StatusMovedPermanently, fmt.Sprintf("/warehouses/%s", id))
 	})
-	// Add other methods if necessary
+	// Add OPTIONS redirect
+	router.OPTIONS("/warehouses/", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/warehouses")
+	})
+	router.OPTIONS("/warehouses/:id/", func(c *gin.Context) {
+		id := c.Param("id")
+		c.Redirect(http.StatusMovedPermanently, fmt.Sprintf("/warehouses/%s", id))
+	})
 }

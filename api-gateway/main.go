@@ -26,7 +26,7 @@ func main() {
 	router := gin.Default()
 
 	// CRITICAL: Disable Gin's automatic trailing slash redirects and fixed path redirects on API Gateway.
-	// This makes our proxy.Director fully responsible for path normalization and prevents undesired 301/307s.
+	// This ensures our explicit routing and proxy.Director have full control over path normalization.
 	router.RedirectTrailingSlash = false
 	router.RedirectFixedPath = false
 
@@ -48,17 +48,43 @@ func main() {
 	// Group API routes under "/api" prefix.
 	apiGroup := router.Group("/api")
 	{
-		// Inside apiGroup
-		apiGroup.POST("/customers", gatewayController.ProxyToCustomerService)           // <-- ADD THIS LINE for explicit POST to root collection
-		apiGroup.Any("/customers/*proxyPath", gatewayController.ProxyToCustomerService) // Keep this for other methods and subpaths
-		// You will need to do this for POST for ALL services that receive POST to their root collection
+		// --- CUSTOMER SERVICE ROUTES ---
+		// Explicitly define routes for the root collection path (e.g., /api/customers)
+		// This handles GET/POST/PUT/DELETE/OPTIONS requests directly to /api/customers
+		apiGroup.GET("/customers", gatewayController.ProxyToCustomerService)
+		apiGroup.POST("/customers", gatewayController.ProxyToCustomerService)
+		apiGroup.PUT("/customers", gatewayController.ProxyToCustomerService)     // Not typically used for root, but covers all methods
+		apiGroup.DELETE("/customers", gatewayController.ProxyToCustomerService)  // Not typically used for root, but covers all methods
+		apiGroup.OPTIONS("/customers", gatewayController.ProxyToCustomerService) // For CORS preflight
+
+		// Use Any for paths with a wildcard (e.g., /api/customers/123)
+		apiGroup.Any("/customers/*proxyPath", gatewayController.ProxyToCustomerService)
+
+		// --- WAREHOUSE SERVICE ROUTES ---
+		apiGroup.GET("/warehouses", gatewayController.ProxyToWarehouseService)
 		apiGroup.POST("/warehouses", gatewayController.ProxyToWarehouseService)
+		apiGroup.PUT("/warehouses", gatewayController.ProxyToWarehouseService)
+		apiGroup.DELETE("/warehouses", gatewayController.ProxyToWarehouseService)
+		apiGroup.OPTIONS("/warehouses", gatewayController.ProxyToWarehouseService)
+
 		apiGroup.Any("/warehouses/*proxyPath", gatewayController.ProxyToWarehouseService)
 
+		// --- COMMODITY SERVICE ROUTES ---
+		apiGroup.GET("/commodities", gatewayController.ProxyToCommoditiesService)
 		apiGroup.POST("/commodities", gatewayController.ProxyToCommoditiesService)
+		apiGroup.PUT("/commodities", gatewayController.ProxyToCommoditiesService)
+		apiGroup.DELETE("/commodities", gatewayController.ProxyToCommoditiesService)
+		apiGroup.OPTIONS("/commodities", gatewayController.ProxyToCommoditiesService)
+
 		apiGroup.Any("/commodities/*proxyPath", gatewayController.ProxyToCommoditiesService)
 
+		// --- INVENTORY SERVICE ROUTES ---
+		apiGroup.GET("/inventory", gatewayController.ProxyToInventoryService)
 		apiGroup.POST("/inventory", gatewayController.ProxyToInventoryService)
+		apiGroup.PUT("/inventory", gatewayController.ProxyToInventoryService)
+		apiGroup.DELETE("/inventory", gatewayController.ProxyToInventoryService)
+		apiGroup.OPTIONS("/inventory", gatewayController.ProxyToInventoryService)
+
 		apiGroup.Any("/inventory/*proxyPath", gatewayController.ProxyToInventoryService)
 	}
 

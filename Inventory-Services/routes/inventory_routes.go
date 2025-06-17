@@ -16,8 +16,11 @@ func InventoryRoutes(router *gin.Engine) {
 	// Primary routes: define WITHOUT a trailing slash for collection endpoints
 	inventoryGroup := router.Group("/inventory")
 	{
-		inventoryGroup.POST("", inventoryController.CreateInventory)     // Matches /inventory
-		inventoryGroup.GET("", inventoryController.GetAllInventories)    // Matches /inventory
+		// Explicitly handle all HTTP methods for the base /inventory path (no trailing slash)
+		inventoryGroup.POST("", inventoryController.CreateInventory)  // Matches /inventory
+		inventoryGroup.GET("", inventoryController.GetAllInventories) // Matches /inventory
+
+		// Routes for specific IDs
 		inventoryGroup.GET("/:id", inventoryController.GetInventoryByID) // Matches /inventory/:id
 		inventoryGroup.PUT("/:id", inventoryController.UpdateInventory)
 		inventoryGroup.DELETE("/:id", inventoryController.DeleteInventory)
@@ -42,5 +45,12 @@ func InventoryRoutes(router *gin.Engine) {
 		id := c.Param("id")
 		c.Redirect(http.StatusMovedPermanently, fmt.Sprintf("/inventory/%s", id))
 	})
-	// Add other methods if necessary
+	// Add OPTIONS redirect
+	router.OPTIONS("/inventory/", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/inventory")
+	})
+	router.OPTIONS("/inventory/:id/", func(c *gin.Context) {
+		id := c.Param("id")
+		c.Redirect(http.StatusMovedPermanently, fmt.Sprintf("/inventory/%s", id))
+	})
 }
