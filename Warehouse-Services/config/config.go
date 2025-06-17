@@ -3,48 +3,46 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
-// AppConfig holds the application-wide configuration.
-type AppConfig struct {
-	MongoURI              string
-	WarehouseServicePort  string
-	CommoditiesServiceURL string
-	CustomerServiceURL    string
-	InventoryServiceURL   string
+// Config holds the application configuration for this microservice.
+type Config struct { // Ensure struct is named Config
+	Port         int    `json:"port"`
+	GinMode      string `json:"gin_mode"` // This field must exist
+	MongoDBURI   string `json:"mongodb_uri"`
+	DatabaseName string `json:"database_name"`
 }
 
-// Global variable to hold the loaded configuration.
-var Cfg AppConfig
+// Cfg is the global configuration instance.
+var Cfg *Config
 
-// LoadConfig loads configuration from environment variables.
+// LoadConfig loads configuration from environment variables or defaults.
 func LoadConfig() error {
-	mongoURI := os.Getenv("MONGO_URI")
-	if mongoURI == "" {
-		mongoURI = "mongodb://localhost:27017" // Default for local dev
-		fmt.Println("MONGO_URI environment variable not set, using default: mongodb://localhost:27017")
-	}
-	Cfg.MongoURI = mongoURI
-
-	// This service's port
-	Cfg.WarehouseServicePort = os.Getenv("WAREHOUSE_SERVICE_PORT")
-	if Cfg.WarehouseServicePort == "" {
-		Cfg.WarehouseServicePort = "8085" // Default port for Warehouse Service
+	Cfg = &Config{
+		Port:         8085,                        // Default port for warehouse service
+		GinMode:      "debug",                     // Default value
+		MongoDBURI:   "mongodb://localhost:27017", // For individual testing outside Docker
+		DatabaseName: "wms_warehouse_db",
 	}
 
-	// Other services' URLs for inter-service communication
-	Cfg.CommoditiesServiceURL = os.Getenv("COMMODITIES_SERVICE_URL")
-	if Cfg.CommoditiesServiceURL == "" {
-		Cfg.CommoditiesServiceURL = "http://localhost:8086" // Default
+	if portStr := os.Getenv("PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			Cfg.Port = port
+		}
 	}
-	Cfg.CustomerServiceURL = os.Getenv("CUSTOMER_SERVICE_URL")
-	if Cfg.CustomerServiceURL == "" {
-		Cfg.CustomerServiceURL = "http://localhost:8087" // Default
+	if ginMode := os.Getenv("GIN_MODE"); ginMode != "" {
+		Cfg.GinMode = ginMode
 	}
-	Cfg.InventoryServiceURL = os.Getenv("INVENTORY_SERVICE_URL")
-	if Cfg.InventoryServiceURL == "" {
-		Cfg.InventoryServiceURL = "http://localhost:8088" // Default for Inventory Service
+	if mongoURI := os.Getenv("MONGODB_URI"); mongoURI != "" {
+		Cfg.MongoDBURI = mongoURI
 	}
+	if dbName := os.Getenv("DATABASE_NAME"); dbName != "" {
+		Cfg.DatabaseName = dbName
+	}
+
+	fmt.Printf("Warehouse Service Configuration: Port=%d, GinMode=%s, MongoDBURI=%s, DatabaseName=%s\n",
+		Cfg.Port, Cfg.GinMode, Cfg.MongoDBURI, Cfg.DatabaseName)
 
 	return nil
 }

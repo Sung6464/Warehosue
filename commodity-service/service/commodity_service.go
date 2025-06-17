@@ -1,93 +1,61 @@
 package service
 
 import (
+	"commodity-service/model"
+	"commodity-service/repository"
 	"context"
-	"fmt"
+	"errors"
 
-	"commodity-service/model"      // Fixed import path
-	"commodity-service/repository" // Fixed import path
-
-	"github.com/google/uuid"
-	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // CommodityService defines the interface for commodity business logic.
 type CommodityService interface {
-	CreateCommodity(ctx context.Context, newCommodity model.Commodity) (model.Commodity, error)
-	GetCommodityByID(ctx context.Context, id string) (model.Commodity, error)
+	CreateCommodity(ctx context.Context, commodity *model.Commodity) (*model.Commodity, error)
 	GetAllCommodities(ctx context.Context) ([]model.Commodity, error)
-	UpdateCommodity(ctx context.Context, id string, updatedData map[string]interface{}) (model.Commodity, error)
+	GetCommodityByID(ctx context.Context, id string) (*model.Commodity, error)
+	UpdateCommodity(ctx context.Context, id string, commodity *model.Commodity) (*model.Commodity, error)
+	DeleteCommodity(ctx context.Context, id string) error
 }
 
 // commodityServiceImpl implements CommodityService.
 type commodityServiceImpl struct {
-	repo repository.CommodityRepository
+	repository repository.CommodityRepository
 }
 
 // NewCommodityService creates a new instance of CommodityService.
-func NewCommodityService(repo repository.CommodityRepository) CommodityService {
-	return &commodityServiceImpl{
-		repo: repo,
-	}
+func NewCommodityService() CommodityService {
+	return &commodityServiceImpl{repository: repository.NewCommodityRepository()}
 }
 
-// CreateCommodity implements CommodityService.
-func (s *commodityServiceImpl) CreateCommodity(ctx context.Context, newCommodity model.Commodity) (model.Commodity, error) {
-	if newCommodity.Name == "" {
-		return model.Commodity{}, fmt.Errorf("commodity name is required")
-	}
-	if newCommodity.Amount <= 0 {
-		return model.Commodity{}, fmt.Errorf("commodity amount must be positive")
-	}
-
-	newCommodity.ID = uuid.New().String()
-	if err := s.repo.Create(ctx, newCommodity); err != nil {
-		return model.Commodity{}, fmt.Errorf("failed to create commodity: %w", err)
-	}
-	return newCommodity, nil
+func (s *commodityServiceImpl) CreateCommodity(ctx context.Context, commodity *model.Commodity) (*model.Commodity, error) {
+	return s.repository.CreateCommodity(ctx, commodity)
 }
 
-// GetCommodityByID implements CommodityService.
-func (s *commodityServiceImpl) GetCommodityByID(ctx context.Context, id string) (model.Commodity, error) {
-	commodity, err := s.repo.FindByID(ctx, id)
-	if err == mongo.ErrNoDocuments {
-		return model.Commodity{}, fmt.Errorf("commodity not found")
-	}
-	return commodity, err
-}
-
-// GetAllCommodities implements CommodityService.
 func (s *commodityServiceImpl) GetAllCommodities(ctx context.Context) ([]model.Commodity, error) {
-	commodities, err := s.repo.FindAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch all commodities: %w", err)
-	}
-	return commodities, nil
+	return s.repository.GetAllCommodities(ctx)
 }
 
-// UpdateCommodity implements CommodityService.
-func (s *commodityServiceImpl) UpdateCommodity(ctx context.Context, id string, updatedData map[string]interface{}) (model.Commodity, error) {
-	if len(updatedData) == 0 {
-		return model.Commodity{}, fmt.Errorf("no fields provided for update")
-	}
-
-	if amount, ok := updatedData["amount"].(float64); ok {
-		if amount < 0 {
-			return model.Commodity{}, fmt.Errorf("commodity amount cannot be negative")
-		}
-		updatedData["amount"] = int(amount)
-	}
-
-	if err := s.repo.Update(ctx, id, updatedData); err != nil {
-		if err == mongo.ErrNoDocuments {
-			return model.Commodity{}, fmt.Errorf("commodity not found")
-		}
-		return model.Commodity{}, fmt.Errorf("failed to update commodity: %w", err)
-	}
-
-	updatedCommodity, err := s.repo.FindByID(ctx, id)
+func (s *commodityServiceImpl) GetCommodityByID(ctx context.Context, id string) (*model.Commodity, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
-		return model.Commodity{}, fmt.Errorf("failed to fetch updated commodity: %w", err)
+		return nil, errors.New("invalid commodity ID format")
 	}
-	return updatedCommodity, nil
+	return s.repository.GetCommodityByID(ctx, objID)
+}
+
+func (s *commodityServiceImpl) UpdateCommodity(ctx context.Context, id string, commodity *model.Commodity) (*model.Commodity, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, errors.New("invalid commodity ID format")
+	}
+	return s.repository.UpdateCommodity(ctx, objID, commodity)
+}
+
+func (s *commodityServiceImpl) DeleteCommodity(ctx context.Context, id string) error {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return errors.New("invalid commodity ID format")
+	}
+	return s.repository.DeleteCommodity(ctx, objID)
 }

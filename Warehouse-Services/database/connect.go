@@ -1,32 +1,40 @@
 package database
 
 import (
+	"Warehouse-Services/config"
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// ConnectDB initializes the MongoDB connection for a service.
-func ConnectDB(mongoURI string) (*mongo.Client, error) {
-	clientOptions := options.Client().ApplyURI(mongoURI)
+// Client holds the MongoDB client instance.
+var Client *mongo.Client
 
-	client, err := mongo.Connect(context.TODO(), clientOptions)
-	if err != nil {
-		return nil, fmt.Errorf("error connecting to MongoDB: %w", err)
-	}
-
+// ConnectDB establishes a connection to MongoDB using config.Cfg.MongoDBURI.
+func ConnectDB() (*mongo.Client, error) { // No arguments here
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err = client.Ping(ctx, nil)
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(config.Cfg.MongoDBURI))
 	if err != nil {
-		client.Disconnect(context.TODO())
-		return nil, fmt.Errorf("error pinging MongoDB: %w", err)
+		return nil, fmt.Errorf("failed to connect to MongoDB: %w", err)
 	}
 
-	fmt.Println("Successfully connected to MongoDB for this service!")
+	err = client.Ping(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ping MongoDB: %w", err)
+	}
+
+	log.Println("Successfully connected to MongoDB!")
+	Client = client
 	return client, nil
+}
+
+// GetCollection returns a handle to a MongoDB collection.
+func GetCollection(client *mongo.Client, collectionName string) *mongo.Collection {
+	return client.Database(config.Cfg.DatabaseName).Collection(collectionName)
 }

@@ -3,48 +3,47 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
-// AppConfig holds the application-wide configuration for the Inventory Service.
-type AppConfig struct {
-	MongoURI              string
-	InventoryServicePort  string
-	WarehouseServiceURL   string // FIXED: Added this field
-	CommoditiesServiceURL string // FIXED: Added this field
-	CustomerServiceURL    string // FIXED: Added this field
+// Config holds the application configuration for this microservice.
+type Config struct {
+	Port         int    `json:"port"`
+	GinMode      string `json:"gin_mode"`
+	MongoDBURI   string `json:"mongodb_uri"`
+	DatabaseName string `json:"database_name"`
 }
 
-// Global variable to hold the loaded configuration.
-var Cfg AppConfig
+// Cfg is the global configuration instance.
+var Cfg *Config
 
-// LoadConfig loads configuration from environment variables.
+// LoadConfig loads configuration from environment variables or defaults.
 func LoadConfig() error {
-	mongoURI := os.Getenv("MONGO_URI")
-	if mongoURI == "" {
-		mongoURI = "mongodb://localhost:27017" // Default for local development
-		fmt.Println("MONGO_URI environment variable not set, using default: mongodb://localhost:27017")
-	}
-	Cfg.MongoURI = mongoURI
-
-	// This service's port (read from environment variable or use default)
-	Cfg.InventoryServicePort = os.Getenv("INVENTORY_SERVICE_PORT")
-	if Cfg.InventoryServicePort == "" {
-		Cfg.InventoryServicePort = "8088" // Default port for Inventory Service
+	Cfg = &Config{
+		Port:         8088, // Default port for inventory service
+		GinMode:      "debug",
+		MongoDBURI:   "mongodb://mongodb-wms:27017", // Default for Docker Compose local
+		DatabaseName: "wms_inventory_db",
 	}
 
-	// URLs for other services that this service needs to communicate with for validation.
-	Cfg.WarehouseServiceURL = os.Getenv("WAREHOUSE_SERVICE_URL")
-	if Cfg.WarehouseServiceURL == "" {
-		Cfg.WarehouseServiceURL = "http://localhost:8085" // Default for Warehouse Service
+	// Override with environment variables if set (Render will set these)
+	if portStr := os.Getenv("PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			Cfg.Port = port
+		}
 	}
-	Cfg.CommoditiesServiceURL = os.Getenv("COMMODITIES_SERVICE_URL")
-	if Cfg.CommoditiesServiceURL == "" {
-		Cfg.CommoditiesServiceURL = "http://localhost:8086" // Default for Commodities Service
+	if ginMode := os.Getenv("GIN_MODE"); ginMode != "" {
+		Cfg.GinMode = ginMode
 	}
-	Cfg.CustomerServiceURL = os.Getenv("CUSTOMER_SERVICE_URL")
-	if Cfg.CustomerServiceURL == "" {
-		Cfg.CustomerServiceURL = "http://localhost:8087" // Default for Customer Service
+	if mongoURI := os.Getenv("MONGODB_URI"); mongoURI != "" {
+		Cfg.MongoDBURI = mongoURI
 	}
+	if dbName := os.Getenv("DATABASE_NAME"); dbName != "" {
+		Cfg.DatabaseName = dbName
+	}
+
+	fmt.Printf("Inventory Service Configuration: Port=%d, GinMode=%s, MongoDBURI=%s, DatabaseName=%s\n",
+		Cfg.Port, Cfg.GinMode, Cfg.MongoDBURI, Cfg.DatabaseName)
 
 	return nil
 }

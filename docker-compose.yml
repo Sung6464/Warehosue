@@ -1,122 +1,110 @@
-version: '3.8' # Use a recent Docker Compose file format. You can remove this line to silence the warning later.
-
 services:
-  # MongoDB Database Service
-  mongodb:
+  mongodb-wms:
     image: mongo:latest
     container_name: mongodb_wms
     ports:
-      - "27017:27017" # Map host port 27017 to container port 27017
+      - "27017:27017"
     volumes:
-      - mongodb_data:/data/db # Persist MongoDB data to a named volume
-    restart: always # Always restart if the container stops
-    environment:
-      # These are for the mongo container itself, not your Go apps.
-      # If you want authentication, uncomment these and adjust MONGO_URI in Go apps.
-      # MONGO_INITDB_ROOT_USERNAME: admin
-      # MONGO_INITDB_ROOT_PASSWORD: password
-      TZ: Asia/Kolkata # Set timezone for MongoDB container
-
-  # --- Your Go Microservices ---
-
-  # API Gateway Service
-  api-gateway:
-    build:
-      context: ./api-gateway # Build from the api-gateway directory
-      dockerfile: Dockerfile
-    container_name: wms_api_gateway
-    ports:
-      - "8080:8080" # Expose the gateway port to the host
-    environment:
-      # Environment variables for the Go application inside the container
-      # These point to other services *within the Docker network*, using their service names
-      API_GATEWAY_PORT: 8080 # New variable added to config
-      GIN_MODE: debug # New variable added to config (set to 'release' for production)
-      CUSTOMER_SERVICE_URL: http://customer-service:8087 # Note: Port 8087, consistent with config
-      WAREHOUSE_SERVICE_URL: http://warehouse-service:8085 # Note: Port 8085
-      COMMODITIES_SERVICE_URL: http://commodity-service:8086 # Note: Port 8086
-      INVENTORY_SERVICE_URL: http://inventory-service:8088 # Note: Port 8088
-    depends_on:
-      # Ensure dependent services are started before the gateway.
-      # These refer to the service names directly below this section.
-      - customer-service
-      - warehouse-service
-      - commodity-service
-      - inventory-service
-    restart: unless-stopped
+      - mongodb_data:/data/db # Persist MongoDB data
+    networks:
+      - wms-network
 
   # Customer Service
-  customer-service:
+  customer-service: # Docker Compose service name (lowercase)
     build:
-      context: ./customer-service # Build from the customer-service directory
+      context: ./Customer-Services # <--- Exact folder name with capitalization
       dockerfile: Dockerfile
     container_name: wms_customer_service
     ports:
-      - "8087:8087" # Expose customer service port
-    environment:
-      MONGO_URI: mongodb://mongodb:27017 # Mongo host is 'mongodb' (the service name)
-      CUSTOMER_SERVICE_PORT: 8087
-      WAREHOUSE_SERVICE_URL: http://warehouse-service:8085 # Within Docker, use service name
+      - "8087:8087"
     depends_on:
-      - mongodb # Customer service needs MongoDB to be available to start
-      # Removed circular dependency to avoid cycle detection
-    restart: unless-stopped
+      - mongodb-wms
+    networks:
+      - wms-network
+    environment:
+      # MongoDB URI uses the Docker Compose service name for MongoDB
+      MONGODB_URI: mongodb://mongodb-wms:27017
+      DATABASE_NAME: wms_customer_db
+      PORT: 8087
 
   # Warehouse Service
-  warehouse-service:
+  warehouse-service: # Docker Compose service name (lowercase)
     build:
-      context: ./Warehouse-Services # Build from the Warehouse-Services directory
+      context: ./Warehouse-Services # <--- Exact folder name with capitalization
       dockerfile: Dockerfile
     container_name: wms_warehouse_service
     ports:
-      - "8085:8085" # Expose warehouse service port
-    environment:
-      MONGO_URI: mongodb://mongodb:27017
-      WAREHOUSE_SERVICE_PORT: 8085
-      COMMODITIES_SERVICE_URL: http://commodity-service:8086
-      CUSTOMER_SERVICE_URL: http://customer-service:8087 # Used for runtime API calls
-      INVENTORY_SERVICE_URL: http://inventory-service:8088
+      - "8085:8085"
     depends_on:
-      - mongodb # Warehouse service needs MongoDB to be available to start
-      # Removed circular dependency
-      - commodity-service # Keep for consistency with InventoryService's check
-      - inventory-service # Keep for consistency with InventoryService's check
-    restart: unless-stopped
+      - mongodb-wms
+    networks:
+      - wms-network
+    environment:
+      MONGODB_URI: mongodb://mongodb-wms:27017
+      DATABASE_NAME: wms_warehouse_db
+      PORT: 8085
 
   # Commodity Service
-  commodity-service:
+  commodity-service: # Docker Compose service name (lowercase)
     build:
-      context: ./commodity-service # Build from the commodity-service directory
+      context: ./commodity-service # <--- Exact folder name with capitalization
       dockerfile: Dockerfile
     container_name: wms_commodity_service
     ports:
-      - "8086:8086" # Expose commodity service port
-    environment:
-      MONGO_URI: mongodb://mongodb:27017
-      COMMODITIES_SERVICE_PORT: 8086
+      - "8086:8086"
     depends_on:
-      - mongodb # Commodity service only needs MongoDB to be available to start
-    restart: unless-stopped
+      - mongodb-wms
+    networks:
+      - wms-network
+    environment:
+      MONGODB_URI: mongodb://mongodb-wms:27017
+      DATABASE_NAME: wms_commodities_db
+      PORT: 8086
 
   # Inventory Service
-  inventory-service:
+  inventory-service: # Docker Compose service name (lowercase)
     build:
-      context: ./Inventory-Services # Build from the Inventory-Services directory
+      context: ./Inventory-Services # <--- Exact folder name with capitalization
       dockerfile: Dockerfile
     container_name: wms_inventory_service
     ports:
-      - "8088:8088" # Expose inventory service port
+      - "8088:8088"
+    depends_on:
+      - mongodb-wms
+    networks:
+      - wms-network
     environment:
-      MONGO_URI: mongodb://mongodb:27017
-      INVENTORY_SERVICE_PORT: 8088
+      MONGODB_URI: mongodb://mongodb-wms:27017
+      DATABASE_NAME: wms_inventory_db
+      PORT: 8088
+
+  # API Gateway
+  api-gateway: # Docker Compose service name (lowercase)
+    build:
+      context: ./api-gateway # <--- Exact folder name with capitalization
+      dockerfile: Dockerfile
+    container_name: wms_api_gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mongodb-wms
+      - customer-service # Dependency using Docker Compose service name
+      - warehouse-service
+      - commodity-service
+      - inventory-service
+    networks:
+      - wms-network
+    environment:
+      # URLs for other services (use their Docker Compose service names)
+      CUSTOMER_SERVICE_URL: http://customer-service:8087
       WAREHOUSE_SERVICE_URL: http://warehouse-service:8085
       COMMODITIES_SERVICE_URL: http://commodity-service:8086
-      CUSTOMER_SERVICE_URL: http://customer-service:8087
-    depends_on:
-      - mongodb # Inventory service needs MongoDB to be available to start
-      # All other dependencies (warehouse, commodity, customer) are for runtime API calls
-      # and do not need to be in depends_on to avoid potential complex cycles.
-    restart: unless-stopped
+      INVENTORY_SERVICE_URL: http://inventory-service:8088
+      PORT: 8080
 
 volumes:
-  mongodb_data: # Define the named volume for MongoDB persistence
+  mongodb_data:
+
+networks:
+  wms-network:
+    driver: bridge

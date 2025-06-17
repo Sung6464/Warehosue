@@ -1,14 +1,38 @@
-# --- Stage 1: Build the Go application ---
-FROM golang:1.24.2-alpine AS builder
+# Use the official Go image as a builder
+FROM golang:1.24.2 AS builder
+
+# Set working directory inside the container
 WORKDIR /app
+
+# Copy go.mod and go.sum to download dependencies
 COPY go.mod go.sum ./
+
+# Download dependencies
 RUN go mod download
+
+# Copy the rest of the application source code
 COPY . .
+
+# Build the Go application
 RUN CGO_ENABLED=0 GOOS=linux go build -o /app/main ./main.go
 
-# --- Stage 2: Create the final lean production image ---
+# Use a minimal base image for the final stage
 FROM alpine:latest
+
+# Install CA certificates for HTTPS connections
+RUN apk --no-cache add ca-certificates
+
+# Set working directory for the final stage
 WORKDIR /app
+
+# Copy the compiled binary from the builder stage
 COPY --from=builder /app/main .
-EXPOSE 8088 
-CMD ["/app/main"]
+
+# !!! IMPORTANT: Make the executable file executable !!!
+RUN chmod +x /app/main
+
+# Expose the port your service listens on (Inventory Service usually 8088)
+EXPOSE 8088
+
+# Command to run the executable
+CMD ["./main"]

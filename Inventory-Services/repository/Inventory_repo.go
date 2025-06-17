@@ -1,88 +1,105 @@
-package repository // The package for files in the 'repository' folder
+package repository
 
 import (
-	"Inventory-Services/model" // FIXED: Matches go.mod module name
+	"Inventory-Services/database"
+	"Inventory-Services/model"
 	"context"
+	"errors"
+	"fmt"
+	"log"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // InventoryRepository defines the interface for inventory data operations.
 type InventoryRepository interface {
-	Create(ctx context.Context, item model.InventoryItem) error
-	FindByID(ctx context.Context, id string) (model.InventoryItem, error)
-	FindAll(ctx context.Context, filter bson.M) ([]model.InventoryItem, error)
-	Update(ctx context.Context, id string, update interface{}) error
-	UpdateQuantity(ctx context.Context, id string, newQuantity int) error
+	CreateInventory(ctx context.Context, inventory *model.Inventory) (*model.Inventory, error)
+	GetAllInventories(ctx context.Context) ([]model.Inventory, error)
+	GetInventoryByID(ctx context.Context, id primitive.ObjectID) (*model.Inventory, error)
+	UpdateInventory(ctx context.Context, id primitive.ObjectID, inventory *model.Inventory) (*model.Inventory, error)
+	DeleteInventory(ctx context.Context, id primitive.ObjectID) error
 }
 
-// mongoInventoryRepository implements InventoryRepository for MongoDB.
-type mongoInventoryRepository struct {
+// inventoryRepositoryImpl implements InventoryRepository.
+type inventoryRepositoryImpl struct {
 	collection *mongo.Collection
 }
 
-// NewMongoInventoryRepository creates a new MongoDB repository for inventory items.
-func NewMongoInventoryRepository(collection *mongo.Collection) InventoryRepository {
-	return &mongoInventoryRepository{
-		collection: collection,
+// NewInventoryRepository creates a new instance of InventoryRepository.
+func NewInventoryRepository() InventoryRepository {
+	// Ensure database.Client is initialized before calling GetCollection
+	if database.Client == nil {
+		log.Fatal("MongoDB client is not initialized. Call database.ConnectDB() first.")
 	}
+	collection := database.GetCollection(database.Client, "inventories")
+	return &inventoryRepositoryImpl{collection: collection}
 }
 
-// Create inserts a new inventory item into the database.
-func (r *mongoInventoryRepository) Create(ctx context.Context, item model.InventoryItem) error {
-	_, err := r.collection.InsertOne(ctx, item)
-	return err
-}
-
-// FindByID retrieves an inventory item by its ID.
-func (r *mongoInventoryRepository) FindByID(ctx context.Context, id string) (model.InventoryItem, error) {
-	var item model.InventoryItem
-	filter := bson.M{"_id": id}
-	err := r.collection.FindOne(ctx, filter).Decode(&item)
-	if err == mongo.ErrNoDocuments {
-		return model.InventoryItem{}, mongo.ErrNoDocuments
-	}
-	return item, err
-}
-
-// FindAll retrieves inventory items based on a filter.
-func (r *mongoInventoryRepository) FindAll(ctx context.Context, filter bson.M) ([]model.InventoryItem, error) {
-	var items []model.InventoryItem
-	cursor, err := r.collection.Find(ctx, filter)
+func (r *inventoryRepositoryImpl) CreateInventory(ctx context.Context, inventory *model.Inventory) (*model.Inventory, error) {
+	result, err := r.collection.InsertOne(ctx, inventory)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create inventory in repository: %w", err)
+	}
+	inventory.ID = result.InsertedID.(primitive.ObjectID)
+	return inventory, nil
+}
+
+func (r *inventoryRepositoryImpl) GetAllInventories(ctx context.Context) ([]model.Inventory, error) {
+	cursor, err := r.collection.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve inventories from repository: %w", err)
 	}
 	defer cursor.Close(ctx)
 
-	if err = cursor.All(ctx, &items); err != nil {
-		return nil, err
+	var inventories []model.Inventory
+	if err = cursor.All(ctx, &inventories); err != nil {
+		return nil, fmt.Errorf("failed to decode inventories from cursor: %w", err)
 	}
-	return items, nil
+	return inventories, nil
 }
 
-// Update updates an existing inventory item by its ID.
-func (r *mongoInventoryRepository) Update(ctx context.Context, id string, update interface{}) error {
-	result, err := r.collection.UpdateByID(ctx, id, bson.D{{Key: "$set", Value: update}})
+func (r *inventoryRepositoryImpl) GetInventoryByID(ctx context.Context, id primitive.ObjectID) (*model.Inventory, error) {
+	var inventory model.Inventory
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&inventory)
 	if err != nil {
-		return err
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, errors.New("inventory not found in repository")
+		}
+		return nil, fmt.Errorf("failed to retrieve inventory by ID from repository: %w", err)
 	}
-	if result.MatchedCount == 0 {
-		return mongo.ErrNoDocuments
-	}
-	return nil
+	return &inventory, nil
 }
 
-// UpdateQuantity updates only the quantity of an inventory item.
-func (r *mongoInventoryRepository) UpdateQuantity(ctx context.Context, id string, newQuantity int) error {
-	filter := bson.M{"_id": id}
-	update := bson.M{"$set": bson.M{"quantity": newQuantity}}
-	result, err := r.collection.UpdateOne(ctx, filter, update)
-	if err != nil {
-		return err
+func (r *inventoryRepositoryImpl) UpdateInventory(ctx context.Context, id primitive.ObjectID, inventory *model.Inventory) (*model.Inventory, error) {
+	updateDoc := bson.M{
+		"$set": bson.M{
+			"product_id":   inventory.ProductID,
+			"quantity":     inventory.Quantity,
+			"location":     inventory.Location,
+			"last_updated": inventory.LastUpdated,
+		},
 	}
-	if result.MatchedCount == 0 {
-		return mongo.ErrNoDocuments
+
+	result, err := r.collection.UpdateByID(ctx, id, updateDoc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update inventory in repository: %w", err)
+	}
+	if result.ModifiedCount == 0 {
+		return nil, errors.New("inventory not found or no changes made in repository")
+	}
+
+	return r.GetInventoryByID(ctx, id)
+}
+
+func (r *inventoryRepositoryImpl) DeleteInventory(ctx context.Context, id primitive.ObjectID) error {
+	result, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
+	if err != nil {
+		return fmt.Errorf("failed to delete inventory from repository: %w", err)
+	}
+	if result.DeletedCount == 0 {
+		return errors.New("inventory not found in repository")
 	}
 	return nil
 }

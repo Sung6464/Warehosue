@@ -2,81 +2,131 @@ package controller
 
 import (
 	"api-gateway/config"
-	"log" // Import log for debugging
+	"fmt"
+	"log"
 	"net/http"
 	"net/http/httputil"
-	"net/url" // Import the strings package
+	"net/url"
+	"strings" // Ensure strings package is imported
 
 	"github.com/gin-gonic/gin"
 )
 
+// GatewayController handles proxying requests to various microservices.
 type GatewayController struct {
-	// You might have dependencies here, e.g., for authentication or logging
+	CustomerServiceURL    *url.URL
+	WarehouseServiceURL   *url.URL
+	CommoditiesServiceURL *url.URL
+	InventoryServiceURL   *url.URL
 }
 
-// NewGatewayController creates a new GatewayController
+// NewGatewayController creates a new instance of GatewayController.
 func NewGatewayController() *GatewayController {
-	return &GatewayController{}
-}
-
-// ProxyToCustomerService proxies requests to the Customer Service
-func (gc *GatewayController) ProxyToCustomerService(c *gin.Context) {
-	// The target service expects paths like /customers, /customers/:id, etc.
-	gc.proxyRequest(c, config.Cfg.CustomerServiceURL, "/customers")
-}
-
-// ProxyToWarehouseService proxies requests to the Warehouse Service
-func (gc *GatewayController) ProxyToWarehouseService(c *gin.Context) {
-	// The target service expects paths like /warehouses, /warehouses/:id, etc.
-	gc.proxyRequest(c, config.Cfg.WarehouseServiceURL, "/warehouses")
-}
-
-// ProxyToCommoditiesService proxies requests to the Commodities Service
-func (gc *GatewayController) ProxyToCommoditiesService(c *gin.Context) {
-	// The target service expects paths like /commodities, /commodities/:id, etc.
-	gc.proxyRequest(c, config.Cfg.CommoditiesServiceURL, "/commodities")
-}
-
-// ProxyToInventoryService proxies requests to the Inventory Service
-func (gc *GatewayController) ProxyToInventoryService(c *gin.Context) {
-	// The target service expects paths like /inventory, /inventory/:id, etc.
-	gc.proxyRequest(c, config.Cfg.InventoryServiceURL, "/inventory")
-}
-
-// proxyRequest handles the actual proxying logic
-// targetBasePath is the base path that the *target service* expects (e.g., "/customers", "/commodities")
-func (gc *GatewayController) proxyRequest(c *gin.Context, targetURL string, targetBasePath string) {
-	remote, err := url.Parse(targetURL)
+	customerURL, err := url.Parse(config.Cfg.CustomerServiceURL)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse target URL"})
-		return
+		log.Fatalf("Invalid Customer Service URL: %v", err)
+	}
+	warehouseURL, err := url.Parse(config.Cfg.WarehouseServiceURL)
+	if err != nil {
+		log.Fatalf("Invalid Warehouse Service URL: %v", err)
+	}
+	commoditiesURL, err := url.Parse(config.Cfg.CommoditiesServiceURL)
+	if err != nil {
+		log.Fatalf("Invalid Commodities Service URL: %v", err)
+	}
+	inventoryURL, err := url.Parse(config.Cfg.InventoryServiceURL)
+	if err != nil {
+		log.Fatalf("Invalid Inventory Service URL: %v", err)
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(remote)
+	return &GatewayController{
+		CustomerServiceURL:    customerURL,
+		WarehouseServiceURL:   warehouseURL,
+		CommoditiesServiceURL: commoditiesURL,
+		InventoryServiceURL:   inventoryURL,
+	}
+}
 
-	// Custom director to rewrite the request URL
+// ProxyToService creates a generic reverse proxy for a given target URL.
+// `apiPathPrefix` is the path on the API Gateway (e.g., "/api/customers")
+// `downstreamRootPath` is the root path on the target service (e.g., "/customers")
+func (gc *GatewayController) ProxyToService(targetURL *url.URL, apiPathPrefix string, downstreamRootPath string) gin.HandlerFunc {
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+
 	proxy.Director = func(req *http.Request) {
-		req.URL.Scheme = remote.Scheme
-		req.URL.Host = remote.Host
-		req.Host = remote.Host // Important for target service to receive correct Host header
+		originalPath := req.URL.Path
 
-		// Get the captured path from the Gin route (*proxyPath)
-		// This will be "" for /api/commodities, "/" for /api/commodities/, "/123" for /api/commodities/123
-		proxyPath := c.Param("proxyPath")
+		// Extract the portion of the path that comes after the API Gateway's prefix.
+		// Gin's `*proxyPath` captures this, but accessing it directly from req.URL.Path
+		// is robust.
+		// Example: if originalPath is "/api/customers/123" and apiPathPrefix is "/api/customers"
+		// then proxyPathSegment will be "/123".
+		// If originalPath is "/api/customers" or "/api/customers/", proxyPathSegment will be "" or "/".
+		proxyPathSegment := strings.TrimPrefix(originalPath, apiPathPrefix)
 
-		// Construct the new path for the target service
-		// We want: targetBasePath + proxyPath (e.g., "/commodities" + "/123" = "/commodities/123")
-		// Special handling for when proxyPath is just "" or "/"
-		if proxyPath == "" || proxyPath == "/" {
-			req.URL.Path = targetBasePath // If no sub-path (e.g., /api/commodities or /api/commodities/), just use the base path
+		// Normalize the proxyPathSegment: ensure it doesn't have leading/trailing slashes for concatenation,
+		// unless it's just the root path.
+		var finalDownstreamPath string
+		if proxyPathSegment == "" || proxyPathSegment == "/" {
+			// If client requested /api/customers or /api/customers/,
+			// send just /customers to the downstream service.
+			finalDownstreamPath = downstreamRootPath
 		} else {
-			req.URL.Path = targetBasePath + proxyPath // Otherwise, append the captured sub-path
+			// If client requested /api/customers/123, send /customers/123.
+			// Trim potential leading slash from proxyPathSegment for correct concatenation.
+			trimmedProxyPathSegment := strings.TrimPrefix(proxyPathSegment, "/")
+			// Ensure downstreamRootPath does not have a trailing slash for concatenation
+			cleanedDownstreamRootPath := strings.TrimSuffix(downstreamRootPath, "/")
+			finalDownstreamPath = fmt.Sprintf("%s/%s", cleanedDownstreamRootPath, trimmedProxyPathSegment)
 		}
 
-		// Add logging for debugging the rewritten path
-		log.Printf("Proxying request: Original Client Path: %s, Captured ProxyPath: '%s', Rewritten Target Path: '%s', Target Host: %s", c.Request.URL.Path, proxyPath, req.URL.Path, req.URL.Host)
+		req.URL.Path = finalDownstreamPath
+		req.URL.RawQuery = req.URL.RawQuery // Preserve original query parameters
+
+		// Important: Set the Host header to the target service's host (e.g., "customer-service:8087")
+		// This is crucial for Docker's internal DNS resolution.
+		req.Host = targetURL.Host
+		req.URL.Scheme = targetURL.Scheme
+		req.URL.Host = targetURL.Host
+
+		log.Printf("Proxying request: Original Client Path: %s, Rewritten Target Path: '%s', Target Host: %s, Query: %s\n",
+			originalPath, req.URL.Path, req.URL.Host, req.URL.RawQuery)
 	}
 
-	// ServeHTTP will modify the request's URL and then forward it.
-	proxy.ServeHTTP(c.Writer, c.Request)
+	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
+		log.Printf("Proxy Error: %v for request %s %s\n", err, req.Method, req.URL.Path)
+		rw.WriteHeader(http.StatusBadGateway)
+		_, _ = rw.Write([]byte(fmt.Sprintf("Bad Gateway: Could not reach upstream service (%s) or proxy error occurred: %v", targetURL.String(), err)))
+	}
+
+	return func(c *gin.Context) {
+		proxy.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+// ProxyToCustomerService proxies requests to the Customer Service.
+func (gc *GatewayController) ProxyToCustomerService(c *gin.Context) {
+	// API Gateway route is /api/customers/*proxyPath
+	// Downstream route is /customers
+	gc.ProxyToService(gc.CustomerServiceURL, "/api/customers", "/customers")(c)
+}
+
+// ProxyToWarehouseService proxies requests to the Warehouse Service.
+func (gc *GatewayController) ProxyToWarehouseService(c *gin.Context) {
+	gc.ProxyToService(gc.WarehouseServiceURL, "/api/warehouses", "/warehouses")(c)
+}
+
+// ProxyToCommoditiesService proxies requests to the Commodity Service.
+func (gc *GatewayController) ProxyToCommoditiesService(c *gin.Context) {
+	gc.ProxyToService(gc.CommoditiesServiceURL, "/api/commodities", "/commodities")(c)
+}
+
+// ProxyToInventoryService proxies requests to the Inventory Service.
+func (gc *GatewayController) ProxyToInventoryService(c *gin.Context) {
+	gc.ProxyToService(gc.InventoryServiceURL, "/api/inventory", "/inventory")(c)
+}
+
+// HealthCheck provides a simple health check endpoint.
+func HealthCheck(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "API Gateway is healthy"})
 }

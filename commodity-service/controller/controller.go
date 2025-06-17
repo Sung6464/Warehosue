@@ -1,111 +1,115 @@
 package controller
 
 import (
+	"commodity-service/model"
+	"commodity-service/service"
 	"context"
-	"fmt"
 	"net/http"
 	"time"
-
-	"commodity-service/model"   // Fixed import path
-	"commodity-service/service" // Fixed import path
 
 	"github.com/gin-gonic/gin"
 )
 
-// CommodityController handles HTTP requests for commodities.
+// CommodityController handles HTTP requests related to commodities.
 type CommodityController struct {
-	service service.CommodityService
+	commodityService service.CommodityService
 }
 
 // NewCommodityController creates a new instance of CommodityController.
 func NewCommodityController(s service.CommodityService) *CommodityController {
-	return &CommodityController{
-		service: s,
-	}
+	return &CommodityController{commodityService: s}
 }
 
-// CreateCommodity handles POST requests to create a new commodity.
-func (ctrl *CommodityController) CreateCommodity(c *gin.Context) {
-	var newCommodity model.Commodity
-	if err := c.ShouldBindJSON(&newCommodity); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request body: %v", err.Error())})
+// CreateCommodity handles POST /commodities requests.
+func (c *CommodityController) CreateCommodity(ctx *gin.Context) {
+	var commodity model.Commodity
+	if err := ctx.ShouldBindJSON(&commodity); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	createdCommodity, err := ctrl.service.CreateCommodity(ctx, newCommodity)
+	createdCommodity, err := c.commodityService.CreateCommodity(timeoutCtx, &commodity)
 	if err != nil {
-		if err.Error() == "commodity name is required" || err.Error() == "commodity amount must be positive" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusCreated, createdCommodity)
+}
+
+// GetAllCommodities handles GET /commodities requests.
+func (c *CommodityController) GetAllCommodities(ctx *gin.Context) {
+	timeoutCtx, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	commodities, err := c.commodityService.GetAllCommodities(timeoutCtx)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, commodities)
+}
+
+// GetCommodityByID handles GET /commodities/:id requests.
+func (c *CommodityController) GetCommodityByID(ctx *gin.Context) {
+	id := ctx.Param("id")
+
+	timeoutCtx, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	commodity, err := c.commodityService.GetCommodityByID(timeoutCtx, id)
+	if err != nil {
+		if err.Error() == "commodity not found" || err.Error() == "invalid commodity ID format" {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create commodity: %v", err.Error())})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 		return
 	}
-
-	c.JSON(http.StatusCreated, createdCommodity)
+	ctx.JSON(http.StatusOK, commodity)
 }
 
-// GetCommodity handles GET requests to retrieve a single commodity by ID.
-func (ctrl *CommodityController) GetCommodity(c *gin.Context) {
-	commodityID := c.Param("id")
+// UpdateCommodity handles PUT /commodities/:id requests.
+func (c *CommodityController) UpdateCommodity(ctx *gin.Context) {
+	id := ctx.Param("id")
+	var commodity model.Commodity
+	if err := ctx.ShouldBindJSON(&commodity); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	commodity, err := ctrl.service.GetCommodityByID(ctx, commodityID)
+	updatedCommodity, err := c.commodityService.UpdateCommodity(timeoutCtx, id, &commodity)
 	if err != nil {
-		if err.Error() == "commodity not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		if err.Error() == "commodity not found" || err.Error() == "invalid commodity ID format" || err.Error() == "commodity not found or no changes made" {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch commodity: %v", err.Error())})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 		return
 	}
-
-	c.JSON(http.StatusOK, commodity)
+	ctx.JSON(http.StatusOK, updatedCommodity)
 }
 
-// GetAllCommodities handles GET requests to retrieve all commodities.
-func (ctrl *CommodityController) GetAllCommodities(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+// DeleteCommodity handles DELETE /commodities/:id requests.
+func (c *CommodityController) DeleteCommodity(ctx *gin.Context) {
+	id := ctx.Param("id")
+
+	timeoutCtx, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	commodities, err := ctrl.service.GetAllCommodities(ctx)
+	err := c.commodityService.DeleteCommodity(timeoutCtx, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch all commodities: %v", err.Error())})
-		return
-	}
-
-	c.JSON(http.StatusOK, commodities)
-}
-
-// UpdateCommodity handles PUT requests to update an existing commodity by ID.
-func (ctrl *CommodityController) UpdateCommodity(c *gin.Context) {
-	commodityID := c.Param("id")
-
-	var updatedData map[string]interface{}
-	if err := c.ShouldBindJSON(&updatedData); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request body: %v", err.Error())})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
-	defer cancel()
-
-	updatedCommodity, err := ctrl.service.UpdateCommodity(ctx, commodityID, updatedData)
-	if err != nil {
-		if err.Error() == "no fields provided for update" || err.Error() == "commodity amount cannot be negative" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		} else if err.Error() == "commodity not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		if err.Error() == "commodity not found" || err.Error() == "invalid commodity ID format" {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to update commodity: %v", err.Error())})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 		return
 	}
-
-	c.JSON(http.StatusOK, updatedCommodity)
+	ctx.JSON(http.StatusNoContent, nil)
 }

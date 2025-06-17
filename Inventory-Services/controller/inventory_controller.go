@@ -1,149 +1,115 @@
-package controller // The package for files in the 'controller' folder
+package controller
 
 import (
-	"context"
-	"fmt"
+	"Inventory-Services/model"
+	"Inventory-Services/service"
+	"context" // Added context import
 	"net/http"
-	"time"
-
-	"Inventory-Services/model"   // FIXED: Matches go.mod module name
-	"Inventory-Services/service" // FIXED: Matches go.mod module name
+	"time" // Added time import
 
 	"github.com/gin-gonic/gin"
 )
 
-// InventoryController handles HTTP requests for inventory.
+// InventoryController handles HTTP requests related to inventory.
 type InventoryController struct {
-	service service.InventoryService
+	inventoryService service.InventoryService
 }
 
 // NewInventoryController creates a new instance of InventoryController.
 func NewInventoryController(s service.InventoryService) *InventoryController {
-	return &InventoryController{
-		service: s,
-	}
+	return &InventoryController{inventoryService: s}
 }
 
-// CreateInventoryItem handles POST requests to create a new inventory item.
-func (ctrl *InventoryController) CreateInventoryItem(c *gin.Context) {
-	var newItem model.InventoryItem
-	if err := c.ShouldBindJSON(&newItem); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request body: %v", err.Error())})
+// CreateInventory handles POST /inventory requests.
+func (c *InventoryController) CreateInventory(ctx *gin.Context) {
+	var inventory model.Inventory
+	if err := ctx.ShouldBindJSON(&inventory); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	createdItem, err := ctrl.service.CreateInventoryItem(ctx, newItem)
+	createdInventory, err := c.inventoryService.CreateInventory(timeoutCtx, &inventory)
 	if err != nil {
-		if err.Error() == "warehouse ID, commodity ID, and positive quantity are required" ||
-			(len(err.Error()) >= 20 && err.Error()[0:20] == "invalid warehouse ID") ||
-			(len(err.Error()) >= 20 && err.Error()[0:20] == "invalid commodity ID") ||
-			(len(err.Error()) >= 20 && err.Error()[0:20] == "invalid customer ID") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusCreated, createdInventory)
+}
+
+// GetAllInventories handles GET /inventory requests.
+func (c *InventoryController) GetAllInventories(ctx *gin.Context) {
+	timeoutCtx, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	inventories, err := c.inventoryService.GetAllInventories(timeoutCtx)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, inventories)
+}
+
+// GetInventoryByID handles GET /inventory/:id requests.
+func (c *InventoryController) GetInventoryByID(ctx *gin.Context) {
+	id := ctx.Param("id")
+
+	timeoutCtx, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	inventory, err := c.inventoryService.GetInventoryByID(timeoutCtx, id)
+	if err != nil {
+		if err.Error() == "inventory not found" || err.Error() == "invalid inventory ID format" {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create inventory item: %v", err.Error())})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 		return
 	}
-
-	c.JSON(http.StatusCreated, createdItem)
+	ctx.JSON(http.StatusOK, inventory)
 }
 
-// GetInventoryItem handles GET requests to retrieve a single inventory item by ID.
-func (ctrl *InventoryController) GetInventoryItem(c *gin.Context) {
-	itemID := c.Param("id")
+// UpdateInventory handles PUT /inventory/:id requests.
+func (c *InventoryController) UpdateInventory(ctx *gin.Context) {
+	id := ctx.Param("id")
+	var inventory model.Inventory
+	if err := ctx.ShouldBindJSON(&inventory); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	item, err := ctrl.service.GetInventoryItemByID(ctx, itemID)
+	updatedInventory, err := c.inventoryService.UpdateInventory(timeoutCtx, id, &inventory)
 	if err != nil {
-		if err.Error() == "inventory item not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		if err.Error() == "inventory not found" || err.Error() == "invalid inventory ID format" || err.Error() == "inventory not found or no changes made" {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch inventory item: %v", err.Error())})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 		return
 	}
-
-	c.JSON(http.StatusOK, item)
+	ctx.JSON(http.StatusOK, updatedInventory)
 }
 
-// GetAllInventoryItems handles GET requests to retrieve all inventory items with filters.
-func (ctrl *InventoryController) GetAllInventoryItems(c *gin.Context) {
-	warehouseID := c.Query("warehouse_id")
-	commodityID := c.Query("commodity_id")
-	customerID := c.Query("customer_id")
+// DeleteInventory handles DELETE /inventory/:id requests.
+func (c *InventoryController) DeleteInventory(ctx *gin.Context) {
+	id := ctx.Param("id")
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	items, err := ctrl.service.GetAllInventoryItems(ctx, warehouseID, commodityID, customerID)
+	err := c.inventoryService.DeleteInventory(timeoutCtx, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch inventory items: %v", err.Error())})
-		return
-	}
-
-	c.JSON(http.StatusOK, items)
-}
-
-// UpdateInventoryItem handles PUT requests to update an existing inventory item by ID.
-func (ctrl *InventoryController) UpdateInventoryItem(c *gin.Context) {
-	itemID := c.Param("id")
-
-	var updatedData map[string]interface{}
-	if err := c.ShouldBindJSON(&updatedData); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request body: %v", err.Error())})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
-	defer cancel()
-
-	updatedItem, err := ctrl.service.UpdateInventoryItem(ctx, itemID, updatedData)
-	if err != nil {
-		if err.Error() == "no fields provided for update" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		} else if err.Error() == "inventory item not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		} else if (len(err.Error()) >= 20 && err.Error()[0:20] == "invalid warehouse ID") ||
-			(len(err.Error()) >= 20 && err.Error()[0:20] == "invalid commodity ID") ||
-			(len(err.Error()) >= 20 && err.Error()[0:20] == "invalid customer ID") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		if err.Error() == "inventory not found" || err.Error() == "invalid inventory ID format" {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to update inventory item: %v", err.Error())})
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
 		return
 	}
-
-	c.JSON(http.StatusOK, updatedItem)
-}
-
-// AdjustInventoryQuantity handles POST request to adjust the quantity of an inventory item.
-func (ctrl *InventoryController) AdjustInventoryQuantity(c *gin.Context) {
-	itemID := c.Param("id")
-	var req struct {
-		QuantityChange int `json:"quantity_change"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request body: %v", err.Error())})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
-	defer cancel()
-
-	updatedItem, err := ctrl.service.AdjustInventoryQuantity(ctx, itemID, req.QuantityChange)
-	if err != nil {
-		if err.Error() == "inventory item not found" || err.Error() == "insufficient stock: cannot reduce quantity below zero" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to adjust inventory quantity: %v", err.Error())})
-		}
-		return
-	}
-
-	c.JSON(http.StatusOK, updatedItem)
+	ctx.JSON(http.StatusNoContent, nil)
 }

@@ -1,64 +1,62 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-	"strconv" // Import for string to int conversion
+	"strconv"
 )
 
-// AppConfig holds the application-wide configuration
-type AppConfig struct {
-	APIGatewayPort        int    // Port for the API Gateway
-	GinMode               string // Gin mode (debug or release)
-	CustomerServiceURL    string
-	WarehouseServiceURL   string
-	CommoditiesServiceURL string
-	InventoryServiceURL   string
+// Config holds the application configuration.
+type Config struct {
+	APIGatewayPort        int    `json:"api_gateway_port"`
+	GinMode               string `json:"gin_mode"`
+	CustomerServiceURL    string `json:"customer_service_url"`
+	WarehouseServiceURL   string `json:"warehouse_service_url"`
+	CommoditiesServiceURL string `json:"commodities_service_url"`
+	InventoryServiceURL   string `json:"inventory_service_url"`
 }
 
-// Cfg is the global configuration instance
-var Cfg AppConfig
+// Cfg is the global configuration instance.
+var Cfg *Config
 
-// LoadConfig loads configuration from environment variables,
-// falling back to localhost defaults for local execution.
+// LoadConfig loads configuration from environment variables or defaults.
 func LoadConfig() error {
-	// API Gateway Port
-	portStr := os.Getenv("API_GATEWAY_PORT")
-	if portStr == "" {
-		portStr = "8080" // Default port for API Gateway
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return fmt.Errorf("invalid API_GATEWAY_PORT: %v", err)
-	}
-	Cfg.APIGatewayPort = port
-
-	// Gin Mode
-	Cfg.GinMode = os.Getenv("GIN_MODE")
-	if Cfg.GinMode == "" {
-		Cfg.GinMode = "debug" // Default Gin mode
+	Cfg = &Config{
+		APIGatewayPort: 8080, // Default for local
+		GinMode:        "debug",
+		// Default to Docker Compose service names for inter-service communication
+		// These will be overridden by environment variables if set (e.g., from docker-compose.yml or Render)
+		CustomerServiceURL:    "http://customer-service:8087",
+		WarehouseServiceURL:   "http://warehouse-service:8085",
+		CommoditiesServiceURL: "http://commodity-service:8086",
+		InventoryServiceURL:   "http://inventory-service:8088",
 	}
 
-	// Service URLs - IMPORTANT: Use localhost for direct local execution!
-	Cfg.CustomerServiceURL = os.Getenv("CUSTOMER_SERVICE_URL")
-	if Cfg.CustomerServiceURL == "" {
-		Cfg.CustomerServiceURL = "http://localhost:8087"
+	// Override with environment variables if set
+	if portStr := os.Getenv("PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			Cfg.APIGatewayPort = port
+		}
+	}
+	if ginMode := os.Getenv("GIN_MODE"); ginMode != "" {
+		Cfg.GinMode = ginMode
+	}
+	if customerURL := os.Getenv("CUSTOMER_SERVICE_URL"); customerURL != "" {
+		Cfg.CustomerServiceURL = customerURL
+	}
+	if warehouseURL := os.Getenv("WAREHOUSE_SERVICE_URL"); warehouseURL != "" {
+		Cfg.WarehouseServiceURL = warehouseURL
+	}
+	if commoditiesURL := os.Getenv("COMMODITIES_SERVICE_URL"); commoditiesURL != "" {
+		Cfg.CommoditiesServiceURL = commoditiesURL
+	}
+	if inventoryURL := os.Getenv("INVENTORY_SERVICE_URL"); inventoryURL != "" {
+		Cfg.InventoryServiceURL = inventoryURL
 	}
 
-	Cfg.WarehouseServiceURL = os.Getenv("WAREHOUSE_SERVICE_URL")
-	if Cfg.WarehouseServiceURL == "" {
-		Cfg.WarehouseServiceURL = "http://localhost:8085"
-	}
-
-	Cfg.CommoditiesServiceURL = os.Getenv("COMMODITIES_SERVICE_URL")
-	if Cfg.CommoditiesServiceURL == "" {
-		Cfg.CommoditiesServiceURL = "http://localhost:8086" // This was the problem!
-	}
-
-	Cfg.InventoryServiceURL = os.Getenv("INVENTORY_SERVICE_URL")
-	if Cfg.InventoryServiceURL == "" {
-		Cfg.InventoryServiceURL = "http://localhost:8088"
-	}
+	configJSON, _ := json.MarshalIndent(Cfg, "", "  ")
+	fmt.Printf("API Gateway Configuration:\n%s\n", string(configJSON))
 
 	return nil
 }

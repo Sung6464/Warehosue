@@ -1,35 +1,16 @@
-package model // The package for files in the 'model' folder
+package model
 
-import "time" // Required for LastUpdated field
+import (
+	"time"
 
-// InventoryItem represents a specific commodity stored in a specific warehouse, potentially for a customer.
-type InventoryItem struct {
-	ID          string    `json:"id" bson:"_id"`
-	WarehouseID string    `json:"warehouse_id" bson:"warehouse_id"`         // ID of the warehouse where this commodity is stored
-	CommodityID string    `json:"commodity_id" bson:"commodity_id"`         // ID of the commodity itself
-	CustomerID  string    `json:"customer_id" bson:"customer_id,omitempty"` // Optional: If this stock belongs to a specific customer
-	Quantity    int       `json:"quantity" bson:"quantity"`                 // Current quantity of this commodity at this location
-	LastUpdated time.Time `json:"last_updated" bson:"last_updated"`         // Timestamp of the last update
-}
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
 
-// Commodity represents the data received from the external Commodities service.
-type Commodity struct {
-	ID     string `json:"id" bson:"_id"`
-	Name   string `json:"name" bson:"name"`
-	Amount int    `json:"amount" bson:"amount"`
-}
-
-// Warehouse represents the data received from the external Warehouse service.
-type Warehouse struct {
-	ID      string `json:"id" bson:"_id"`
-	Name    string `json:"name" bson:"name"`
-	Address string `json:"location" bson:"address"`
-	Storage int    `json:"storage" bson:"storage"`
-}
-
-// Customer represents the data received from the external Customers service.
-type Customer struct {
-	ID           string   `json:"id" bson:"_id"`
-	Name         string   `json:"name" bson:"name"`
-	WarehouseIDs []string `json:"warehouse_ids" bson:"warehouse_ids,omitempty"`
+// Inventory represents an inventory record in the database.
+type Inventory struct {
+	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	ProductID   primitive.ObjectID `bson:"product_id" json:"productId"`
+	Quantity    int                `bson:"quantity" json:"quantity"`
+	Location    string             `bson:"location" json:"location"`
+	LastUpdated time.Time          `bson:"last_updated" json:"lastUpdated"`
 }

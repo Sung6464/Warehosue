@@ -1,0 +1,9 @@
+go 1.24.4
+
+use (
+	./Customer-Services
+	./Inventory-Services
+	./Warehouse-Services
+	./api-gateway
+	./commodity-service
+)
